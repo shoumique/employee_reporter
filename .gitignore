@@ -47,7 +47,6 @@ media/
 # If you want to keep Data_Format.xlsx tracked, remove it from this ignore list.
 # Temporary Excel files
 ~$*
-*.xlsx
 *.xlsm
 *.xlsb
 
