@@ -1,0 +1,521 @@
+{% extends "reporter/base.html" %}
+{% block title %}রিপোর্ট কনফিগার – কর্মী রিপোর্ট{% endblock %}
+
+{% block extra_head %}
+<style>
+  /* ── Layout ────────────────────────────────────────────────── */
+  .section-card { border-radius: 12px; }
+  .section-title {
+    font-size: .95rem;
+    font-weight: 600;
+    color: var(--primary);
+    border-bottom: 2px solid #dde6f0;
+    padding-bottom: .5rem;
+    margin-bottom: 1rem;
+  }
+
+  /* ── Preset buttons ────────────────────────────────────────── */
+  .preset-btn {
+    border: 2px solid #d0dde8;
+    border-radius: 10px;
+    background: #fff;
+    cursor: pointer;
+    transition: border-color .18s, background .18s, box-shadow .18s;
+    padding: .6rem .9rem;
+    text-align: left;
+    width: 100%;
+  }
+  .preset-btn:hover { border-color: var(--accent); background: #eef4ff; }
+  .preset-btn.active {
+    border-color: var(--accent);
+    background: #dbeafe;
+    box-shadow: 0 0 0 3px rgba(13,110,253,.15);
+  }
+  .preset-icon { font-size: 1.4rem; line-height: 1; }
+  .preset-label { font-size: .88rem; font-weight: 600; }
+  .preset-desc  { font-size: .76rem; color: #6c757d; }
+
+  /* ── Column checkboxes ─────────────────────────────────────── */
+  .col-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+    gap: .4rem .6rem;
+    max-height: 340px;
+    overflow-y: auto;
+    padding: .25rem .1rem;
+  }
+  .col-check-item {
+    display: flex;
+    align-items: center;
+    gap: .45rem;
+    padding: .35rem .55rem;
+    border-radius: 7px;
+    border: 1.5px solid #e2e8f0;
+    background: #fff;
+    cursor: pointer;
+    transition: border-color .15s, background .15s;
+    user-select: none;
+  }
+  .col-check-item:hover { border-color: #93b8d8; background: #f5f9ff; }
+  .col-check-item.checked { border-color: var(--accent); background: #eff6ff; }
+  .col-check-item input[type=checkbox] { cursor: pointer; accent-color: var(--accent); flex-shrink:0; }
+  .col-label { font-family: var(--bn-font); font-size: .82rem; line-height: 1.3; word-break: break-word; }
+
+  /* ── Employee selector ─────────────────────────────────────── */
+  .emp-search { position: sticky; top: 0; z-index: 2; background: #fff; }
+  .emp-list {
+    max-height: 320px;
+    overflow-y: auto;
+    border: 1.5px solid #e2e8f0;
+    border-radius: 8px;
+    background: #fff;
+  }
+  .emp-item {
+    display: flex;
+    align-items: center;
+    gap: .5rem;
+    padding: .5rem .75rem;
+    border-bottom: 1px solid #f0f4f9;
+    cursor: pointer;
+    transition: background .12s;
+  }
+  .emp-item:last-child { border-bottom: none; }
+  .emp-item:hover { background: #f5f9ff; }
+  .emp-item.checked { background: #eff6ff; }
+  .emp-id-badge {
+    font-size: .72rem;
+    font-weight: 600;
+    background: var(--primary);
+    color: #fff;
+    padding: .15rem .45rem;
+    border-radius: 20px;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+  .emp-name { font-family: var(--bn-font); font-size: .9rem; }
+  .emp-no-results { text-align:center; color:#aaa; padding:2rem; font-size:.85rem; }
+
+  /* ── Export button bar ─────────────────────────────────────── */
+  .export-bar {
+    position: sticky;
+    bottom: 0;
+    background: rgba(240, 244, 249, .96);
+    backdrop-filter: blur(6px);
+    border-top: 1.5px solid #d6e4f0;
+    padding: .85rem 1rem;
+    z-index: 10;
+  }
+  .btn-export {
+    background: linear-gradient(135deg, #1f4e79 0%, #2e6da4 100%);
+    color: #fff;
+    font-weight: 600;
+    border: none;
+    border-radius: 9px;
+    padding: .55rem 2rem;
+    transition: opacity .2s;
+  }
+  .btn-export:hover { opacity: .9; color: #fff; }
+  .btn-export:active { opacity: .8; }
+
+  /* ── Bangla note banner ────────────────────────────────────── */
+  .bn-note {
+    background: #fffbe6;
+    border-left: 4px solid #f6c90e;
+    border-radius: 0 8px 8px 0;
+    padding: .6rem 1rem;
+    font-size: .82rem;
+    color: #5a4a00;
+  }
+
+  /* scrollbar styling */
+  .col-grid::-webkit-scrollbar, .emp-list::-webkit-scrollbar { width: 5px; }
+  .col-grid::-webkit-scrollbar-track, .emp-list::-webkit-scrollbar-track { background: #f1f1f1; }
+  .col-grid::-webkit-scrollbar-thumb, .emp-list::-webkit-scrollbar-thumb { background: #b0c4de; border-radius: 4px; }
+</style>
+{% endblock %}
+
+{% block content %}
+
+<!-- File info bar -->
+<div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-3">
+  <div>
+    <h4 class="fw-bold mb-0" style="color:var(--primary)">
+      <i class="bi bi-sliders me-2"></i>রিপোর্ট কনফিগার করুন
+    </h4>
+    <small class="text-muted">
+      <i class="bi bi-file-earmark-excel me-1 text-success"></i>{{ filename }}
+      &nbsp;·&nbsp; {{ row_count }} জন কর্মী
+    </small>
+  </div>
+  <a href="{% url 'reporter:upload' %}" class="btn btn-sm btn-outline-secondary">
+    <i class="bi bi-arrow-left me-1"></i>নতুন ফাইল
+  </a>
+</div>
+
+<!-- Bangla font note -->
+<div class="bn-note mb-3 bn-sm">
+  <i class="bi bi-info-circle me-1"></i>
+  বাংলা সঠিকভাবে দেখতে <strong>Hind Siliguri</strong> বা <strong>Nirmala UI</strong> ফন্ট সমর্থিত ব্রাউজার ব্যবহার করুন।
+  ডাউনলোড করা Excel-এ Nirmala UI ফন্ট ব্যবহার করা হয়েছে।
+</div>
+
+<form method="post" action="{% url 'reporter:export' %}" id="exportForm">
+  {% csrf_token %}
+
+  <div class="row g-3">
+
+    <!-- LEFT COLUMN ─────────────────────────────────────────── -->
+    <div class="col-lg-8">
+
+      <!-- 1. Report Template -->
+      <div class="card section-card mb-3">
+        <div class="card-body">
+          <h6 class="section-title">
+            <i class="bi bi-layout-text-window me-1"></i>রিপোর্ট টেমপ্লেট
+          </h6>
+          <div class="row g-2" id="presetContainer">
+            <!-- Custom / no preset -->
+            <div class="col-sm-6 col-md-4">
+              <button type="button" class="preset-btn active"
+                      data-preset="custom" onclick="selectPreset(this)">
+                <div class="preset-icon">⚙️</div>
+                <div class="preset-label mt-1">Custom</div>
+                <div class="preset-desc">নিজে কলাম নির্বাচন করুন</div>
+              </button>
+            </div>
+
+            {% for key, preset in presets.items %}
+            <div class="col-sm-6 col-md-4">
+              <button type="button" class="preset-btn"
+                      data-preset="{{ key }}"
+                      data-cols='{{ preset.columns|join:"|||" }}'
+                      onclick="selectPreset(this)">
+                <div class="preset-icon">{{ preset.icon }}</div>
+                <div class="preset-label mt-1">{{ preset.label }}</div>
+                <div class="preset-desc">{{ preset.description }}</div>
+              </button>
+            </div>
+            {% endfor %}
+          </div>
+        </div>
+      </div>
+
+      <!-- 2. Column Selection -->
+      <div class="card section-card mb-3">
+        <div class="card-body">
+          <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-2">
+            <h6 class="section-title mb-0" style="border:none;padding:0">
+              <i class="bi bi-table me-1"></i>কলাম নির্বাচন করুন
+              <span class="badge bg-secondary ms-1 fw-normal" id="colCount">0</span>
+            </h6>
+            <div class="d-flex gap-2">
+              <button type="button" class="btn btn-sm btn-outline-primary"
+                      onclick="toggleAllCols(true)">
+                সব নির্বাচন
+              </button>
+              <button type="button" class="btn btn-sm btn-outline-secondary"
+                      onclick="toggleAllCols(false)">
+                বাতিল
+              </button>
+            </div>
+          </div>
+
+          <div class="col-grid" id="colGrid">
+            {% for col in columns %}
+            <label class="col-check-item" id="col-label-{{ forloop.counter0 }}">
+              <input type="checkbox" name="columns" value="{{ col }}"
+                     id="col-{{ forloop.counter0 }}"
+                     onchange="onColChange(this)" />
+              <span class="col-label" title="{{ col }}">{{ col }}</span>
+            </label>
+            {% endfor %}
+          </div>
+        </div>
+      </div>
+
+    </div><!-- /LEFT -->
+
+    <!-- RIGHT COLUMN ────────────────────────────────────────── -->
+    <div class="col-lg-4">
+
+      <!-- 3. Employee Selection -->
+      <div class="card section-card mb-3">
+        <div class="card-body">
+          <h6 class="section-title">
+            <i class="bi bi-people me-1"></i>কর্মী নির্বাচন
+            <small class="text-muted fw-normal ms-1">(খালি = সবাই)</small>
+          </h6>
+
+          <!-- Search -->
+          <input type="text" class="form-control form-control-sm mb-2 bn-sm emp-search"
+                 id="empSearch" placeholder="নাম বা আইডি দিয়ে খুঁজুন…"
+                 oninput="filterEmployees()" />
+
+          <!-- Select/Deselect all -->
+          <div class="d-flex gap-2 mb-2">
+            <button type="button" class="btn btn-sm btn-outline-primary flex-fill"
+                    onclick="toggleAllEmps(true)">সব নির্বাচন</button>
+            <button type="button" class="btn btn-sm btn-outline-secondary flex-fill"
+                    onclick="toggleAllEmps(false)">বাতিল</button>
+          </div>
+
+          <p class="text-muted bn-sm mb-1" id="empSelCount">
+            কোনো নির্বাচন নেই – সব কর্মীর ডেটা যাবে
+          </p>
+
+          <!-- Employee list -->
+          <div class="emp-list" id="empList">
+            {% if employees %}
+              {% for emp in employees %}
+              <div class="emp-item" id="emp-wrapper-{{ forloop.counter0 }}"
+                   data-id="{{ emp.id }}" data-name="{{ emp.name }}"
+                   onclick="toggleEmp(this)">
+                <input type="checkbox" name="employees" value="{{ emp.id }}"
+                       id="emp-{{ forloop.counter0 }}" onclick="event.stopPropagation();"
+                       onchange="onEmpChange(this)" />
+                <span class="emp-id-badge">{{ emp.id }}</span>
+                <span class="emp-name">{{ emp.name }}</span>
+              </div>
+              {% endfor %}
+            {% else %}
+              <div class="emp-no-results">কোনো কর্মীর তথ্য পাওয়া যায়নি।</div>
+            {% endif %}
+          </div>
+        </div>
+      </div>
+
+      <!-- 4. Report Title -->
+      <div class="card section-card">
+        <div class="card-body">
+          <h6 class="section-title">
+            <i class="bi bi-pencil me-1"></i>রিপোর্টের শিরোনাম
+          </h6>
+          <input type="text" class="form-control bn-sm" name="report_title"
+                 id="reportTitle" value="Employee Report"
+                 placeholder="রিপোর্টের নাম লিখুন" maxlength="80" />
+          <small class="text-muted mt-1 d-block" style="font-size:.75rem">
+            Excel ফাইলের নাম ও শিটের নাম হিসেবে ব্যবহৃত হবে।
+          </small>
+        </div>
+      </div>
+
+    </div><!-- /RIGHT -->
+
+  </div><!-- /row -->
+
+  <!-- Error toast -->
+  <div id="exportError" class="alert alert-danger alert-dismissible d-none mt-2 bn-sm" role="alert">
+    <i class="bi bi-exclamation-triangle-fill me-2"></i>
+    <span id="exportErrorMsg"></span>
+    <button type="button" class="btn-close" onclick="hideError()"></button>
+  </div>
+
+  <!-- Sticky Export Bar -->
+  <div class="export-bar mt-2 rounded-3 d-flex align-items-center justify-content-between gap-3">
+    <div class="bn-sm text-muted">
+      <span id="summaryText">কলাম ও কর্মী নির্বাচন করুন তারপর Export করুন।</span>
+    </div>
+    <button type="button" class="btn btn-export bn-sm" id="exportBtn"
+            onclick="doExport()">
+      <i class="bi bi-download me-2"></i>Excel ডাউনলোড করুন
+    </button>
+  </div>
+
+</form>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+// ── Column logic ───────────────────────────────────────────────────────────
+
+function onColChange(checkbox) {
+  const label = checkbox.closest('.col-check-item');
+  label.classList.toggle('checked', checkbox.checked);
+  updateColCount();
+  updateSummary();
+}
+
+function toggleAllCols(state) {
+  document.querySelectorAll('#colGrid input[type=checkbox]').forEach(cb => {
+    cb.checked = state;
+    cb.closest('.col-check-item').classList.toggle('checked', state);
+  });
+  updateColCount();
+  updateSummary();
+}
+
+function updateColCount() {
+  const checked = document.querySelectorAll('#colGrid input[type=checkbox]:checked').length;
+  document.getElementById('colCount').textContent = checked;
+}
+
+// ── Preset logic ───────────────────────────────────────────────────────────
+
+function selectPreset(btn) {
+  // Deactivate all
+  document.querySelectorAll('.preset-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+
+  const preset = btn.dataset.preset;
+
+  if (preset === 'custom') {
+    // Don't change checkboxes; user controls them
+    updateReportTitle('Employee Report');
+    updateSummary();
+    return;
+  }
+
+  const rawCols = btn.dataset.cols || '';
+  const presetCols = rawCols ? rawCols.split('|||') : [];
+
+  // Uncheck all, then check preset cols
+  document.querySelectorAll('#colGrid input[type=checkbox]').forEach(cb => {
+    const inPreset = presetCols.includes(cb.value);
+    cb.checked = inPreset;
+    cb.closest('.col-check-item').classList.toggle('checked', inPreset);
+  });
+
+  updateColCount();
+  updateReportTitle(btn.querySelector('.preset-label').textContent);
+  updateSummary();
+}
+
+function updateReportTitle(title) {
+  const input = document.getElementById('reportTitle');
+  if (input) input.value = title;
+}
+
+// ── Employee logic ─────────────────────────────────────────────────────────
+
+function toggleEmp(wrapper) {
+  const cb = wrapper.querySelector('input[type=checkbox]');
+  cb.checked = !cb.checked;
+  wrapper.classList.toggle('checked', cb.checked);
+  updateEmpSelCount();
+  updateSummary();
+}
+
+function onEmpChange(cb) {
+  cb.closest('.emp-item').classList.toggle('checked', cb.checked);
+  updateEmpSelCount();
+  updateSummary();
+}
+
+function toggleAllEmps(state) {
+  document.querySelectorAll('#empList .emp-item:not([style*="display: none"]) input[type=checkbox]')
+    .forEach(cb => {
+      cb.checked = state;
+      cb.closest('.emp-item').classList.toggle('checked', state);
+    });
+  updateEmpSelCount();
+  updateSummary();
+}
+
+function filterEmployees() {
+  const q = document.getElementById('empSearch').value.toLowerCase().trim();
+  document.querySelectorAll('#empList .emp-item').forEach(item => {
+    const id   = (item.dataset.id   || '').toLowerCase();
+    const name = (item.dataset.name || '').toLowerCase();
+    item.style.display = (!q || id.includes(q) || name.includes(q)) ? '' : 'none';
+  });
+}
+
+function updateEmpSelCount() {
+  const total   = document.querySelectorAll('#empList input[type=checkbox]').length;
+  const checked = document.querySelectorAll('#empList input[type=checkbox]:checked').length;
+  const el = document.getElementById('empSelCount');
+  if (checked === 0) {
+    el.textContent = `কোনো নির্বাচন নেই – সব ${total} জন কর্মীর ডেটা যাবে`;
+  } else {
+    el.textContent = `${checked} জন কর্মী নির্বাচিত`;
+  }
+}
+
+// ── Summary ────────────────────────────────────────────────────────────────
+
+function updateSummary() {
+  const cols    = document.querySelectorAll('#colGrid input[type=checkbox]:checked').length;
+  const emps    = document.querySelectorAll('#empList  input[type=checkbox]:checked').length;
+  const totalEmps = document.querySelectorAll('#empList input[type=checkbox]').length;
+  const empText = emps === 0 ? `সব ${totalEmps} জন কর্মী` : `${emps} জন কর্মী`;
+  document.getElementById('summaryText').textContent =
+    `${cols} টি কলাম · ${empText}`;
+}
+
+function showError(msg) {
+  const el = document.getElementById('exportError');
+  document.getElementById('exportErrorMsg').textContent = msg;
+  el.classList.remove('d-none');
+  el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+function hideError() {
+  document.getElementById('exportError').classList.add('d-none');
+}
+
+async function doExport() {
+  hideError();
+
+  const cols = document.querySelectorAll('#colGrid input[type=checkbox]:checked').length;
+  if (cols === 0) {
+    showError('কমপক্ষে একটি কলাম নির্বাচন করুন।');
+    return;
+  }
+
+  const btn = document.getElementById('exportBtn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>তৈরি হচ্ছে…';
+
+  try {
+    const form    = document.getElementById('exportForm');
+    const formData = new FormData(form);
+
+    const response = await fetch(form.action, {
+      method:      'POST',
+      body:        formData,
+      credentials: 'same-origin',
+    });
+
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(`সার্ভার ত্রুটি (${response.status})`);
+    }
+
+    const blob = await response.blob();
+    if (!blob.size) {
+      throw new Error('সার্ভার থেকে ফাঁকা ফাইল পাওয়া গেছে।');
+    }
+
+    // Determine filename from Content-Disposition header
+    let filename = 'report.xlsx';
+    const cd = response.headers.get('Content-Disposition') || '';
+    const match = cd.match(/filename="?([^"]+)"?/);
+    if (match) filename = match[1];
+
+    // Trigger browser download via a temporary <a> element
+    const url = URL.createObjectURL(blob);
+    const a   = document.createElement('a');
+    a.href     = url;
+    a.download = filename;
+    a.style.display = 'none';
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 1000);
+
+  } catch (err) {
+    showError('ডাউনলোড ব্যর্থ হয়েছে: ' + err.message);
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '<i class="bi bi-download me-2"></i>Excel ডাউনলোড করুন';
+  }
+}
+
+// ── Init ───────────────────────────────────────────────────────────────────
+
+document.addEventListener('DOMContentLoaded', () => {
+  updateColCount();
+  updateEmpSelCount();
+  updateSummary();
+});
+</script>
+{% endblock %}
