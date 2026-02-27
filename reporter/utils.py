@@ -33,9 +33,67 @@ _VOWEL_SIGN_HI = 0x09CC
 # Khanda Ta: maps to 'r' in Bijoy – invalid mid-word in real Bengali
 _KHANDA_TA = "\u09CE"
 
-# ── Known column positions (0-based) ──────────────────────────────────────
-COL_PERSONNEL_IDX = 3   # পার্সোনেল নং  (unique employee ID)
-COL_NAME_IDX = 5        # নাম            (employee name)
+# ── Fallback column positions used only when auto-detection fails ─────────
+_FALLBACK_ID_IDX   = 3   # পার্সোনেল নং  in the standard AGM sheet
+_FALLBACK_NAME_IDX = 5   # নাম            in the standard AGM sheet
+
+# Keywords used to locate the ID and name columns by header text
+_ID_KEYWORDS   = ["পার্সোনেল", "personnel", "emp_id", "employee_id"]
+_ID_EXACT      = ["id"]            # exact (lowercased) column names
+_NAME_KEYWORDS = ["নাম", "name"]
+_NAME_EXACT    = ["নাম", "name_bn", "name"]
+
+
+def _detect_id_name_cols(columns: List[str]) -> Tuple[int, int]:
+    """Return (id_col_index, name_col_index) by scanning column headers.
+
+    Priority:
+    1. Exact match on well-known names (case-insensitive, stripped)
+    2. Substring match on keyword lists
+    3. Fallback to _FALLBACK_*_IDX (clamped to actual column count)
+    """
+    lower = [c.lower().strip() for c in columns]
+
+    id_idx: Optional[int] = None
+    name_idx: Optional[int] = None
+
+    # ── ID column ──────────────────────────────────────────────────────
+    # Exact match first
+    for exact in _ID_EXACT:
+        if exact in lower:
+            id_idx = lower.index(exact)
+            break
+    # Substring match
+    if id_idx is None:
+        for i, c in enumerate(lower):
+            if any(kw in c for kw in _ID_KEYWORDS):
+                id_idx = i
+                break
+    # Positional fallback
+    if id_idx is None:
+        id_idx = min(_FALLBACK_ID_IDX, len(columns) - 1)
+
+    # ── Name column ────────────────────────────────────────────────────
+    # Exact match first
+    for exact in _NAME_EXACT:
+        if exact in lower:
+            name_idx = lower.index(exact)
+            break
+    # Substring match
+    if name_idx is None:
+        for i, c in enumerate(lower):
+            if any(kw in c for kw in _NAME_KEYWORDS):
+                name_idx = i
+                break
+    # Positional fallback
+    if name_idx is None:
+        name_idx = min(_FALLBACK_NAME_IDX, len(columns) - 1)
+
+    # Make sure they're not the same column
+    if name_idx == id_idx:
+        name_idx = id_idx + 1 if id_idx + 1 < len(columns) else id_idx
+
+    return id_idx, name_idx
 
 # ── Report preset definitions by fixed column positions ───────────────────
 REPORT_PRESETS: Dict[str, Dict] = {
@@ -134,18 +192,26 @@ def convert_bijoy_value(value: Any) -> Any:
 def _convert_col_name(raw: str) -> str:
     """Convert a single column name from Bijoy to Unicode, cleaning up whitespace.
 
-    For column headers we are more permissive than cell values: we accept any
-    output that contains at least one Bengali codepoint (not just vowel signs),
-    because short headers like 'নথি নং' may not have dependent vowel signs.
+    Uses the same strict check as convert_bijoy_value (vowel signs required) so
+    that plain English identifiers like 'id', 'name_bn', 'designation_en' are
+    never accidentally mangled by the Bijoy converter.
     """
     if raw.startswith("Unnamed:"):
         return raw
     clean = raw.replace("\n", " ").strip()
+    # Already Unicode Bengali → pass through
     if _has_bengali(clean):
+        return clean
+    # Pure ASCII with no alpha (numbers, symbols) → nothing to convert
+    if not any(c.isalpha() for c in clean):
         return clean
     try:
         converted = uc.convert_bijoy_to_unicode(clean)
-        if _has_bengali(converted) and not _has_invalid_khanda_ta(converted):
+        # Require at least one vowel sign, same as cell-value conversion.
+        # Real Bijoy-encoded Bengali words always produce vowel signs;
+        # English identifiers like 'id' / 'name_bn' produce consonant-only
+        # garbage that correctly fails this test.
+        if _has_vowel_sign(converted) and not _has_invalid_khanda_ta(converted):
             return converted.replace("\n", " ").strip()
     except Exception:
         pass
@@ -196,11 +262,12 @@ def load_and_process_excel(file_path: str) -> Tuple[pd.DataFrame, List[str]]:
 def get_employee_list(df: pd.DataFrame) -> List[Dict[str, str]]:
     """Return a list of {id, name} dicts for the employee multi-select."""
     cols = list(df.columns)
-    if len(cols) <= max(COL_PERSONNEL_IDX, COL_NAME_IDX):
+    if not cols:
         return []
 
-    id_col = cols[COL_PERSONNEL_IDX]
-    name_col = cols[COL_NAME_IDX]
+    id_idx, name_idx = _detect_id_name_cols(cols)
+    id_col   = cols[id_idx]
+    name_col = cols[name_idx]
 
     employees = []
     for _, row in df.iterrows():
@@ -249,7 +316,8 @@ def generate_export_excel(
     Returns:
         Raw bytes of the .xlsx file.
     """
-    id_col = list(df.columns)[COL_PERSONNEL_IDX]
+    id_idx, _ = _detect_id_name_cols(list(df.columns))
+    id_col = list(df.columns)[id_idx]
 
     # ── Filter rows ──────────────────────────────────────────────────────
     if employee_ids:
@@ -516,8 +584,9 @@ def generate_export_docx_zip(
         is_zip=False → file_bytes is a single .docx
         is_zip=True  → file_bytes is a .zip of multiple .docx files
     """
-    id_col   = list(df.columns)[COL_PERSONNEL_IDX]
-    name_col = list(df.columns)[COL_NAME_IDX]
+    id_idx, name_idx = _detect_id_name_cols(list(df.columns))
+    id_col   = list(df.columns)[id_idx]
+    name_col = list(df.columns)[name_idx]
 
     # ── Filter rows ──────────────────────────────────────────────────────
     if employee_ids:
