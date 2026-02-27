@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="bn">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>লগইন – কর্মী রিপোর্ট জেনারেটর</title>
+
+  <link rel="stylesheet"
+        href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css"
+        integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH"
+        crossorigin="anonymous" />
+  <link rel="stylesheet"
+        href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Hind+Siliguri:wght@400;600;700&family=Inter:wght@400;500;600&display=swap"
+        rel="stylesheet" />
+
+  <style>
+    :root {
+      --primary:       #1f4e79;
+      --primary-light: #2e6da4;
+      --accent:        #0d6efd;
+      --bg-soft:       #f0f4f9;
+      --bn-font: 'Hind Siliguri', 'Noto Sans Bengali', sans-serif;
+    }
+    body {
+      font-family: 'Inter', system-ui, sans-serif;
+      background: var(--bg-soft);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .login-card {
+      width: 100%;
+      max-width: 420px;
+      border: none;
+      border-radius: 16px;
+      box-shadow: 0 4px 24px rgba(0,0,0,.12);
+      overflow: hidden;
+    }
+    .login-header {
+      background: linear-gradient(135deg, var(--primary) 0%, var(--primary-light) 100%);
+      color: #fff;
+      padding: 2rem 2rem 1.5rem;
+      text-align: center;
+    }
+    .login-header .brand-icon {
+      font-size: 2.5rem;
+      margin-bottom: .5rem;
+    }
+    .login-header .brand-title {
+      font-family: var(--bn-font);
+      font-size: 1.25rem;
+      font-weight: 700;
+      margin: 0;
+    }
+    .login-header .brand-sub {
+      font-size: .8rem;
+      opacity: .8;
+      margin-top: .2rem;
+    }
+    .login-body {
+      background: #fff;
+      padding: 2rem;
+    }
+    .form-label {
+      font-weight: 500;
+      font-size: .9rem;
+      color: #374151;
+    }
+    .form-control {
+      border-radius: 8px;
+      border: 1.5px solid #d1d5db;
+      padding: .55rem .85rem;
+      font-size: .95rem;
+      transition: border-color .15s, box-shadow .15s;
+    }
+    .form-control:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px rgba(13,110,253,.15);
+    }
+    .btn-login {
+      background: linear-gradient(135deg, var(--primary) 0%, var(--primary-light) 100%);
+      color: #fff;
+      font-weight: 600;
+      border: none;
+      border-radius: 9px;
+      padding: .65rem;
+      font-size: 1rem;
+      width: 100%;
+      transition: opacity .2s;
+    }
+    .btn-login:hover { opacity: .9; color: #fff; }
+    .input-group-text {
+      border-radius: 8px 0 0 8px;
+      border: 1.5px solid #d1d5db;
+      border-right: none;
+      background: #f8fafc;
+      color: #6b7280;
+    }
+    .input-group .form-control { border-radius: 0 8px 8px 0; }
+    .error-box {
+      background: #fef2f2;
+      border: 1px solid #fca5a5;
+      border-radius: 8px;
+      color: #b91c1c;
+      font-size: .875rem;
+      padding: .65rem .9rem;
+    }
+  </style>
+</head>
+<body>
+
+<div class="login-card">
+  <div class="login-header">
+    <div class="brand-icon"><i class="bi bi-file-earmark-spreadsheet"></i></div>
+    <p class="brand-title">কর্মী রিপোর্ট জেনারেটর</p>
+    <p class="brand-sub">Employee Report Generator</p>
+  </div>
+
+  <div class="login-body">
+    <h5 class="fw-semibold mb-4 text-center" style="color:var(--primary)">
+      <i class="bi bi-lock me-2"></i>লগইন করুন
+    </h5>
+
+    {% if form.errors %}
+    <div class="error-box mb-3">
+      <i class="bi bi-exclamation-triangle-fill me-1"></i>
+      ব্যবহারকারীর নাম বা পাসওয়ার্ড সঠিক নয়। আবার চেষ্টা করুন।
+    </div>
+    {% endif %}
+
+    <form method="post">
+      {% csrf_token %}
+      <input type="hidden" name="next" value="{{ next }}" />
+
+      <div class="mb-3">
+        <label for="id_username" class="form-label">ব্যবহারকারীর নাম</label>
+        <div class="input-group">
+          <span class="input-group-text"><i class="bi bi-person"></i></span>
+          <input type="text" name="username" id="id_username"
+                 class="form-control" autocomplete="username"
+                 placeholder="Username" required autofocus />
+        </div>
+      </div>
+
+      <div class="mb-4">
+        <label for="id_password" class="form-label">পাসওয়ার্ড</label>
+        <div class="input-group">
+          <span class="input-group-text"><i class="bi bi-key"></i></span>
+          <input type="password" name="password" id="id_password"
+                 class="form-control" autocomplete="current-password"
+                 placeholder="Password" required />
+        </div>
+      </div>
+
+      <button type="submit" class="btn btn-login">
+        <i class="bi bi-box-arrow-in-right me-2"></i>লগইন
+      </button>
+    </form>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"
+        crossorigin="anonymous"></script>
+</body>
+</html>

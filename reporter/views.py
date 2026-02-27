@@ -2,6 +2,7 @@ import os
 import uuid
 
 from django.conf import settings
+from django.contrib.auth.decorators import login_required
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import redirect, render
 from django.views.decorators.http import require_GET, require_POST
@@ -17,6 +18,7 @@ from .utils import (
 
 # ── Upload ─────────────────────────────────────────────────────────────────
 
+@login_required
 def upload_view(request):
     error = None
 
@@ -48,6 +50,7 @@ def upload_view(request):
 
 # ── Configure ──────────────────────────────────────────────────────────────
 
+@login_required
 def configure_view(request):
     excel_path = request.session.get("excel_path")
     if not excel_path or not os.path.exists(excel_path):
@@ -84,6 +87,7 @@ def configure_view(request):
 
 # ── Export ─────────────────────────────────────────────────────────────────
 
+@login_required
 @require_POST
 def export_view(request):
     excel_path = request.session.get("excel_path")
@@ -125,6 +129,7 @@ def export_view(request):
 
 # ── Export DOCX (per-employee, zipped when multiple) ───────────────────────
 
+@login_required
 @require_POST
 def export_docx_view(request):
     excel_path = request.session.get("excel_path")
@@ -170,6 +175,7 @@ def export_docx_view(request):
 
 # ── AJAX: preset column list ───────────────────────────────────────────────
 
+@login_required
 @require_GET
 def preset_columns_view(request):
     excel_path = request.session.get("excel_path")
