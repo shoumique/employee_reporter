@@ -117,6 +117,18 @@
   .btn-export:hover { opacity: .9; color: #fff; }
   .btn-export:active { opacity: .8; }
 
+  .btn-export-word {
+    background: linear-gradient(135deg, #1a5276 0%, #2e86c1 100%);
+    color: #fff;
+    font-weight: 600;
+    border: none;
+    border-radius: 9px;
+    padding: .55rem 1.6rem;
+    transition: opacity .2s;
+  }
+  .btn-export-word:hover { opacity: .9; color: #fff; }
+  .btn-export-word:active { opacity: .8; }
+
   /* ── Bangla note banner ────────────────────────────────────── */
   .bn-note {
     background: #fffbe6;
@@ -315,10 +327,16 @@
     <div class="bn-sm text-muted">
       <span id="summaryText">কলাম ও কর্মী নির্বাচন করুন তারপর Export করুন।</span>
     </div>
-    <button type="button" class="btn btn-export bn-sm" id="exportBtn"
-            onclick="doExport()">
-      <i class="bi bi-download me-2"></i>Excel ডাউনলোড করুন
-    </button>
+    <div class="d-flex gap-2 flex-wrap">
+      <button type="button" class="btn btn-export bn-sm" id="exportBtn"
+              onclick="doExport()">
+        <i class="bi bi-file-earmark-spreadsheet me-2"></i>Excel ডাউনলোড করুন
+      </button>
+      <button type="button" class="btn btn-export-word bn-sm" id="exportDocxBtn"
+              onclick="doExportDocx()">
+        <i class="bi bi-file-earmark-word me-2"></i>Word ডাউনলোড করুন
+      </button>
+    </div>
   </div>
 
 </form>
@@ -453,7 +471,7 @@ function hideError() {
   document.getElementById('exportError').classList.add('d-none');
 }
 
-async function doExport() {
+async function _doDownload(url, btnId, busyLabel, idleHTML) {
   hideError();
 
   const cols = document.querySelectorAll('#colGrid input[type=checkbox]:checked').length;
@@ -462,22 +480,21 @@ async function doExport() {
     return;
   }
 
-  const btn = document.getElementById('exportBtn');
+  const btn = document.getElementById(btnId);
   btn.disabled = true;
-  btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>তৈরি হচ্ছে…';
+  btn.innerHTML = `<span class="spinner-border spinner-border-sm me-2"></span>${busyLabel}`;
 
   try {
-    const form    = document.getElementById('exportForm');
+    const form     = document.getElementById('exportForm');
     const formData = new FormData(form);
 
-    const response = await fetch(form.action, {
+    const response = await fetch(url, {
       method:      'POST',
       body:        formData,
       credentials: 'same-origin',
     });
 
     if (!response.ok) {
-      const text = await response.text();
       throw new Error(`সার্ভার ত্রুটি (${response.status})`);
     }
 
@@ -487,27 +504,48 @@ async function doExport() {
     }
 
     // Determine filename from Content-Disposition header
-    let filename = 'report.xlsx';
+    let filename = 'report';
     const cd = response.headers.get('Content-Disposition') || '';
     const match = cd.match(/filename="?([^"]+)"?/);
     if (match) filename = match[1];
 
     // Trigger browser download via a temporary <a> element
-    const url = URL.createObjectURL(blob);
-    const a   = document.createElement('a');
-    a.href     = url;
+    const dlUrl = URL.createObjectURL(blob);
+    const a     = document.createElement('a');
+    a.href     = dlUrl;
     a.download = filename;
     a.style.display = 'none';
     document.body.appendChild(a);
     a.click();
-    setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 1000);
+    setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(dlUrl); }, 1000);
 
   } catch (err) {
     showError('ডাউনলোড ব্যর্থ হয়েছে: ' + err.message);
   } finally {
     btn.disabled = false;
-    btn.innerHTML = '<i class="bi bi-download me-2"></i>Excel ডাউনলোড করুন';
+    btn.innerHTML = idleHTML;
   }
+}
+
+async function doExport() {
+  await _doDownload(
+    '{% url "reporter:export" %}',
+    'exportBtn',
+    'তৈরি হচ্ছে…',
+    '<i class="bi bi-file-earmark-spreadsheet me-2"></i>Excel ডাউনলোড করুন'
+  );
+}
+
+async function doExportDocx() {
+  const emps = document.querySelectorAll('#empList input[type=checkbox]:checked').length;
+  const idleHTML = '<i class="bi bi-file-earmark-word me-2"></i>Word ডাউনলোড করুন';
+  const busyLabel = emps > 1 ? `${emps} টি DOCX তৈরি হচ্ছে…` : 'তৈরি হচ্ছে…';
+  await _doDownload(
+    '{% url "reporter:export_docx" %}',
+    'exportDocxBtn',
+    busyLabel,
+    idleHTML
+  );
 }
 
 // ── Init ───────────────────────────────────────────────────────────────────

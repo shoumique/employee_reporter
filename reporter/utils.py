@@ -6,14 +6,22 @@ Handles:
 - Excel file loading and processing
 - Report preset definitions
 - Export Excel generation
+- Export DOCX generation (per-employee, zipped when multiple)
 """
 
 import io
 import os
+import zipfile
 from typing import Any, Dict, List, Optional, Tuple
 
 import pandas as pd
 import unicodeconverter as uc
+from docx import Document
+from docx.enum.table import WD_TABLE_ALIGNMENT
+from docx.enum.text import WD_ALIGN_PARAGRAPH
+from docx.oxml import OxmlElement
+from docx.oxml.ns import qn
+from docx.shared import Cm, Pt, RGBColor
 from openpyxl.styles import Alignment, Font, PatternFill
 
 # ── Bengali Unicode ranges ─────────────────────────────────────────────────
@@ -303,3 +311,258 @@ def generate_export_excel(
 
     output.seek(0)
     return output.read()
+
+
+# ── DOCX helpers ────────────────────────────────────────────────────────────
+
+def _set_cell_border(cell, **kwargs) -> None:
+    """Apply borders to a table cell via direct XML manipulation."""
+    tc   = cell._tc
+    tcPr = tc.get_or_add_tcPr()
+    tcBorders = OxmlElement("w:tcBorders")
+    for edge in ("top", "left", "bottom", "right"):
+        tag = OxmlElement(f"w:{edge}")
+        tag.set(qn("w:val"),   kwargs.get("val",   "single"))
+        tag.set(qn("w:sz"),    kwargs.get("sz",    "4"))
+        tag.set(qn("w:space"), "0")
+        tag.set(qn("w:color"), kwargs.get("color", "B0C4DE"))
+        tcBorders.append(tag)
+    tcPr.append(tcBorders)
+
+
+def _set_cell_shading(cell, fill: str) -> None:
+    """Set background fill colour of a table cell."""
+    tc   = cell._tc
+    tcPr = tc.get_or_add_tcPr()
+    shd  = OxmlElement("w:shd")
+    shd.set(qn("w:val"),   "clear")
+    shd.set(qn("w:color"), "auto")
+    shd.set(qn("w:fill"),  fill)
+    tcPr.append(shd)
+
+
+def _fix_table_col_widths(table, col_twips: tuple) -> None:
+    """Enforce fixed column widths on a table via direct XML.
+
+    Sets tblLayout=fixed, patches the existing tblGrid gridCol widths,
+    and stamps tcW on every cell so Word cannot widen any column.
+    """
+    tbl   = table._tbl
+    tblPr = tbl.find(qn("w:tblPr"))
+    if tblPr is None:
+        tblPr = OxmlElement("w:tblPr")
+        tbl.insert(0, tblPr)
+
+    # Fixed layout
+    tblLayout = OxmlElement("w:tblLayout")
+    tblLayout.set(qn("w:type"), "fixed")
+    tblPr.append(tblLayout)
+
+    # Total table width
+    tblW = OxmlElement("w:tblW")
+    tblW.set(qn("w:w"), str(sum(col_twips)))
+    tblW.set(qn("w:type"), "dxa")
+    tblPr.append(tblW)
+
+    # Patch existing gridCol elements
+    tblGrid = tbl.find(qn("w:tblGrid"))
+    if tblGrid is not None:
+        for i, gc in enumerate(tblGrid.findall(qn("w:gridCol"))):
+            if i < len(col_twips):
+                gc.set(qn("w:w"), str(col_twips[i]))
+
+    # Stamp tcW on every cell
+    for tbl_row in table.rows:
+        for i, cell in enumerate(tbl_row.cells):
+            if i < len(col_twips):
+                tc   = cell._tc
+                tcPr = tc.get_or_add_tcPr()
+                # Remove any existing tcW to avoid duplicates
+                for old in tcPr.findall(qn("w:tcW")):
+                    tcPr.remove(old)
+                tcW = OxmlElement("w:tcW")
+                tcW.set(qn("w:w"), str(col_twips[i]))
+                tcW.set(qn("w:type"), "dxa")
+                tcPr.append(tcW)
+
+
+def _make_employee_docx(
+    row: "pd.Series",
+    selected_columns: List[str],
+    report_title: str,
+) -> bytes:
+    """Build a Word document for a single employee.
+
+    Layout:
+    - Centred bold title (report_title)
+    - 3-column table: Field Name | ঃ | Value
+    - Alternating row shading; header-style first column
+    """
+    doc = Document()
+
+    # ── Page setup ────────────────────────────────────────────────────────
+    section = doc.sections[0]
+    section.page_width    = Cm(21)
+    section.page_height   = Cm(29.7)
+    section.left_margin   = Cm(2.5)
+    section.right_margin  = Cm(2.5)
+    section.top_margin    = Cm(2.5)
+    section.bottom_margin = Cm(2.5)
+
+    # ── Default paragraph style ───────────────────────────────────────────
+    style = doc.styles["Normal"]
+    style.font.name = "Nirmala UI"
+    style.font.size = Pt(11)
+
+    # ── Header: প্রধান কার্যালয়, ঢাকা ──────────────────────────────────────
+    header_para = doc.add_paragraph()
+    header_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    header_run = header_para.add_run("প্রধান কার্যালয়, ঢাকা")
+    header_run.bold           = True
+    header_run.font.size      = Pt(13)
+    header_run.font.name      = "Nirmala UI"
+    header_run.font.color.rgb = RGBColor(0x1F, 0x4E, 0x79)
+
+    # ── Title ─────────────────────────────────────────────────────────────
+    title_para = doc.add_paragraph()
+    title_para.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    title_run = title_para.add_run(report_title)
+    title_run.bold      = True
+    title_run.font.size = Pt(13)
+    title_run.font.name = "Nirmala UI"
+    title_run.font.color.rgb = RGBColor(0x1F, 0x4E, 0x79)
+    # Underline the report title to match the original style
+    title_run.underline = True
+
+    doc.add_paragraph()  # spacer
+
+    # ── Build rows ────────────────────────────────────────────────────────
+    valid_cols = [
+        c for c in selected_columns
+        if c in row.index and str(row[c]).strip() not in ("", "nan", "NaN")
+    ]
+    if not valid_cols:
+        valid_cols = [c for c in selected_columns if c in row.index]
+
+    # ── Table ─────────────────────────────────────────────────────────────
+    table = doc.add_table(rows=len(valid_cols), cols=3)
+    table.alignment = WD_TABLE_ALIGNMENT.CENTER
+
+    # label: 6.5 cm | colon: 0.5 cm | value: 9.0 cm  (twips: 1 cm ≈ 567)
+    _COL_TWIPS = (3685, 484, 5102)
+
+    for row_idx, col_name in enumerate(valid_cols):
+        cells = table.rows[row_idx].cells
+
+        val = str(row[col_name]).strip()
+        if val in ("nan", "NaN"):
+            val = ""
+
+        # Cell 0 – field label
+        cells[0].text = col_name
+        # Cell 1 – separator
+        cells[1].text = "ঃ"
+        # Cell 2 – value
+        cells[2].text = val
+
+        # Row shading: alternate between white and very light blue
+        shade = "EEF4FB" if row_idx % 2 == 0 else "FFFFFF"
+
+        for cell_idx, cell in enumerate(cells):
+            _set_cell_border(cell)
+            _set_cell_shading(cell, shade)
+
+            for para in cell.paragraphs:
+                para.alignment = WD_ALIGN_PARAGRAPH.LEFT
+                for run in para.runs:
+                    run.font.name = "Nirmala UI"
+                    run.font.size = Pt(10)
+                    if cell_idx == 0:
+                        # Field-name column: slightly bold, dark colour
+                        run.bold            = True
+                        run.font.color.rgb  = RGBColor(0x1F, 0x4E, 0x79)
+                    elif cell_idx == 1:
+                        run.bold            = True
+                        run.font.color.rgb  = RGBColor(0x44, 0x72, 0xC4)
+                    else:
+                        run.bold           = False
+                        run.font.color.rgb = RGBColor(0x00, 0x00, 0x00)
+
+    # Apply fixed column widths after all rows/cells are populated
+    _fix_table_col_widths(table, _COL_TWIPS)
+
+    output = io.BytesIO()
+    doc.save(output)
+    output.seek(0)
+    return output.read()
+
+
+def generate_export_docx_zip(
+    df: "pd.DataFrame",
+    selected_columns: List[str],
+    employee_ids: Optional[List[str]] = None,
+    report_title: str = "Employee Report",
+) -> Tuple[bytes, bool]:
+    """Generate one DOCX per employee and optionally wrap them in a ZIP.
+
+    Args:
+        df               – processed DataFrame
+        selected_columns – columns to show in each document
+        employee_ids     – list of personnel IDs to include; None means all
+        report_title     – title printed at the top of every document
+
+    Returns:
+        (file_bytes, is_zip)
+        is_zip=False → file_bytes is a single .docx
+        is_zip=True  → file_bytes is a .zip of multiple .docx files
+    """
+    id_col   = list(df.columns)[COL_PERSONNEL_IDX]
+    name_col = list(df.columns)[COL_NAME_IDX]
+
+    # ── Filter rows ──────────────────────────────────────────────────────
+    if employee_ids:
+        mask   = df[id_col].astype(str).isin([str(e).strip() for e in employee_ids])
+        df_out = df[mask].copy()
+    else:
+        df_out = df.copy()
+
+    # ── Filter columns ───────────────────────────────────────────────────
+    valid_cols = [c for c in selected_columns if c in df_out.columns]
+    if not valid_cols:
+        valid_cols = list(df_out.columns)
+
+    # ── Generate per-employee DOCX ───────────────────────────────────────
+    docx_files: List[Tuple[str, bytes]] = []
+    for _, row in df_out.iterrows():
+        emp_id   = str(row[id_col]).strip()
+        emp_name = str(row.get(name_col, emp_id)).strip()
+        if emp_name in ("nan", "NaN", ""):
+            emp_name = emp_id
+
+        docx_bytes = _make_employee_docx(row, valid_cols, report_title)
+
+        safe_name = "".join(
+            c if c.isalnum() or c in " _-" else "_" for c in emp_name
+        ).strip("_")
+        filename = f"{safe_name}_{emp_id}.docx"
+        docx_files.append((filename, docx_bytes))
+
+    if not docx_files:
+        # Fallback: empty doc
+        doc = Document()
+        doc.add_paragraph("No data found.")
+        buf = io.BytesIO()
+        doc.save(buf)
+        buf.seek(0)
+        return buf.read(), False
+
+    if len(docx_files) == 1:
+        return docx_files[0][1], False
+
+    # ── Multiple employees → ZIP ─────────────────────────────────────────
+    zip_buffer = io.BytesIO()
+    with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+        for filename, docx_bytes in docx_files:
+            zf.writestr(filename, docx_bytes)
+    zip_buffer.seek(0)
+    return zip_buffer.read(), True

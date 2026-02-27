@@ -8,6 +8,7 @@ from django.views.decorators.http import require_GET, require_POST
 
 from .utils import (
     REPORT_PRESETS,
+    generate_export_docx_zip,
     generate_export_excel,
     get_employee_list,
     get_preset_columns,
@@ -118,6 +119,51 @@ def export_view(request):
     )
     response["Content-Disposition"] = f'attachment; filename="{filename}"'
     # Allow the JS fetch client to read the Content-Disposition header
+    response["Access-Control-Expose-Headers"] = "Content-Disposition"
+    return response
+
+
+# ── Export DOCX (per-employee, zipped when multiple) ───────────────────────
+
+@require_POST
+def export_docx_view(request):
+    excel_path = request.session.get("excel_path")
+    if not excel_path or not os.path.exists(excel_path):
+        return redirect("reporter:upload")
+
+    try:
+        df, columns = load_and_process_excel(excel_path)
+    except Exception:
+        return redirect("reporter:upload")
+
+    selected_columns = request.POST.getlist("columns")
+    employee_ids     = request.POST.getlist("employees")
+    report_title     = (request.POST.get("report_title") or "Employee Report").strip()
+
+    if not selected_columns:
+        selected_columns = columns
+
+    file_bytes, is_zip = generate_export_docx_zip(
+        df,
+        selected_columns,
+        employee_ids if employee_ids else None,
+        report_title,
+    )
+
+    safe_name = "".join(c if c.isalnum() or c in " _-" else "_" for c in report_title)
+
+    if is_zip:
+        filename     = f"{safe_name}.zip"
+        content_type = "application/zip"
+    else:
+        filename     = f"{safe_name}.docx"
+        content_type = (
+            "application/vnd.openxmlformats-officedocument"
+            ".wordprocessingml.document"
+        )
+
+    response = HttpResponse(file_bytes, content_type=content_type)
+    response["Content-Disposition"] = f'attachment; filename="{filename}"'
     response["Access-Control-Expose-Headers"] = "Content-Disposition"
     return response
 
